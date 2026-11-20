@@ -75,7 +75,14 @@ export class GmailOAuthProvider implements OAuthServerProvider {
       googleCodeVerifier: googleVerifier,
       expiresAt: new Date(Date.now() + PENDING_TTL_MS),
     });
-    res.redirect(302, this.google.buildAuthUrl(id, googleChallenge));
+    let url: string;
+    try {
+      url = this.google.buildAuthUrl(id, googleChallenge);
+    } catch {
+      sendPage(res, 503, 'Servidor ainda não configurado', 'As credenciais OAuth do Google ainda não foram configuradas neste servidor.');
+      return;
+    }
+    res.redirect(302, url);
   }
 
   /** Perna 2 ← Google: valida a conta, guarda o refresh token cifrado e devolve o código ao Claude. */

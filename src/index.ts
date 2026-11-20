@@ -1,22 +1,37 @@
 import { loadConfig } from './config.js';
 import { createApp } from './app.js';
 import { MemoryStore } from './store/memory.js';
-import { SupabaseStore } from './store/supabase.js';
-import { FakeGoogleOAuth, RealGoogleOAuth } from './auth/google.js';
+import { PostgresStore } from './store/postgres.js';
+import { FakeGoogleOAuth, RealGoogleOAuth, UnconfiguredGoogleOAuth, type GoogleOAuth } from './auth/google.js';
 import { log } from './logger.js';
 import type { FetchLike } from './gmail/gateway.js';
 
 async function main() {
   const config = loadConfig();
-  const store = config.STORE === 'memory' ? new MemoryStore() : new SupabaseStore(config.SUPABASE_URL!, config.SUPABASE_SERVICE_ROLE_KEY!);
-  const google = config.DEV_FAKE_GOOGLE
-    ? new FakeGoogleOAuth(config.googleRedirectUri, config.allowedEmail)
-    : new RealGoogleOAuth(config.GOOGLE_CLIENT_ID!, config.GOOGLE_CLIENT_SECRET!, config.googleRedirectUri, config.allowedEmail);
+  const store = config.STORE === 'memory' ? new MemoryStore() : new PostgresStore(config.DATABASE_URL!);
+  let google: GoogleOAuth;
+  if (config.DEV_FAKE_GOOGLE) google = new FakeGoogleOAuth(config.googleRedirectUri, config.allowedEmail);
+  else if (config.googleConfigured)
+    google = new RealGoogleOAuth(config.GOOGLE_CLIENT_ID!, config.GOOGLE_CLIENT_SECRET!, config.googleRedirectUri, config.allowedEmail);
+  else {
+    google = new UnconfiguredGoogleOAuth();
+    log.warn({ event: 'config', reason: 'GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET ausentes: autorização desativada' });
+  }
 
   let gmailFetch: FetchLike | undefined;
   if (config.GMAIL_MOCK) {
     const { MockGmail } = await import('./dev/mockGmail.js');
     gmailFetch = new MockGmail(config.allowedEmail).fetch;
+  }
+
+  if (store instanceof PostgresStore) {
+    try {
+      await store.ping();
+      log.info({ event: 'db', status: 'ok' });
+    } catch (e) {
+      // Não derruba o servidor: o healthcheck mostra o problema.
+      log.error({ event: 'db', status: 'error', errorCode: (e as { code?: string }).code ?? (e as Error).name, reason: String((e as Error).message).slice(0, 200) });
+    }
   }
 
   const { app } = createApp({ config, store, google, gmailFetch });

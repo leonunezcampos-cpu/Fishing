@@ -136,3 +136,20 @@ export class FakeGoogleOAuth implements GoogleOAuth {
   }
   async revoke() {}
 }
+
+/** Usado enquanto GOOGLE_CLIENT_ID/SECRET não foram configurados: o servidor sobe, mas não autoriza. */
+export class UnconfiguredGoogleOAuth implements GoogleOAuth {
+  private fail(): never {
+    throw new Error('google_not_configured');
+  }
+  buildAuthUrl(): string {
+    return this.fail();
+  }
+  async exchangeCode(): Promise<GoogleCodeExchange> {
+    return this.fail();
+  }
+  async refreshAccessToken(): Promise<{ accessToken: string; expiresIn: number }> {
+    return this.fail();
+  }
+  async revoke() {}
+}

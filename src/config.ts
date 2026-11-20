@@ -30,9 +30,9 @@ const EnvSchema = z.object({
   /** 32 bytes em base64 (npm run gen-key). Criptografa o refresh token do Google e assina links. */
   TOKEN_ENCRYPTION_KEY: z.string().optional(),
 
-  STORE: z.enum(['supabase', 'memory']).default('supabase'),
-  SUPABASE_URL: z.string().url().optional(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  STORE: z.enum(['postgres', 'memory']).default('postgres'),
+  /** postgresql://gmail_mcp_app.<ref>:<senha>@<pooler>:6543/postgres — papel restrito ao schema gmail_mcp. */
+  DATABASE_URL: z.string().optional(),
 
   ACCESS_TOKEN_TTL_SECONDS: intWithDefault(3600),
   REFRESH_TOKEN_TTL_SECONDS: intWithDefault(30 * 24 * 3600),
@@ -82,11 +82,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   if (isProd && !baseUrl.startsWith('https://')) {
     throw new Error('PUBLIC_BASE_URL precisa ser https em produção');
   }
-  if (!parsed.DEV_FAKE_GOOGLE && (!parsed.GOOGLE_CLIENT_ID || !parsed.GOOGLE_CLIENT_SECRET)) {
-    throw new Error('GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET são obrigatórios');
-  }
-  if (parsed.STORE === 'supabase' && (!parsed.SUPABASE_URL || !parsed.SUPABASE_SERVICE_ROLE_KEY)) {
-    throw new Error('SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são obrigatórios com STORE=supabase');
+  if (parsed.STORE === 'postgres' && !parsed.DATABASE_URL) {
+    throw new Error('DATABASE_URL é obrigatória com STORE=postgres');
   }
 
   let encryptionKey: Buffer;
@@ -111,5 +108,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     signatureText: unescape(parsed.EMAIL_SIGNATURE)?.trim() || undefined,
     signatureHtml: parsed.EMAIL_SIGNATURE_HTML?.trim() || undefined,
     googleRedirectUri: `${baseUrl}/oauth/google/callback`,
+    googleConfigured: !!(parsed.GOOGLE_CLIENT_ID && parsed.GOOGLE_CLIENT_SECRET),
   };
 }
