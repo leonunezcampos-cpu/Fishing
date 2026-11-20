@@ -42,6 +42,24 @@ export class MockGmail {
     { id: 'Label_1', name: 'Clientes', type: 'user' },
   ];
   private seq = 100;
+  private readSeq = 0;
+
+  /** Como o Gmail real: cada leitura devolve attachmentIds novos e longos (~400 caracteres). */
+  private withFreshAttachmentIds(msg: GmailMessage): GmailMessage {
+    const n = ++this.readSeq;
+    const clone = JSON.parse(JSON.stringify(msg)) as GmailMessage;
+    const walk = (p?: GmailPart) => {
+      if (!p) return;
+      if (p.body?.attachmentId) p.body.attachmentId = `${p.body.attachmentId}_${n}${'Q'.repeat(400)}`;
+      p.parts?.forEach(walk);
+    };
+    walk(clone.payload);
+    return clone;
+  }
+
+  private canonicalAttachmentId(id: string) {
+    return id.split('_')[0];
+  }
 
   constructor(private self: string) {
     this.seed();
@@ -157,7 +175,7 @@ export class MockGmail {
       return ok({ threads: ids.map(id => ({ id })), resultSizeEstimate: ids.length });
     }
     if (method === 'GET' && (m = /^\/threads\/([^/]+)$/.exec(path))) {
-      const msgs = this.thread(m[1]);
+      const msgs = this.thread(m[1]).map(x => this.withFreshAttachmentIds(x));
       return msgs.length ? ok({ id: m[1], messages: msgs }) : notFound();
     }
     if (method === 'POST' && (m = /^\/threads\/([^/]+)\/modify$/.exec(path))) {
@@ -165,12 +183,12 @@ export class MockGmail {
       return ok({ id: m[1] });
     }
     if (method === 'GET' && (m = /^\/messages\/([^/]+)\/attachments\/([^/]+)$/.exec(path))) {
-      const a = this.attachments.get(m[2]);
+      const a = this.attachments.get(this.canonicalAttachmentId(m[2]));
       return a ? ok({ data: a.toString('base64url'), size: a.length }) : notFound();
     }
     if (method === 'GET' && (m = /^\/messages\/([^/]+)$/.exec(path))) {
       const msg = this.messages.get(m[1]);
-      return msg ? ok(msg) : notFound();
+      return msg ? ok(this.withFreshAttachmentIds(msg)) : notFound();
     }
     if (method === 'POST' && (m = /^\/messages\/([^/]+)\/modify$/.exec(path)) && m[1] !== 'send') {
       const msg = this.messages.get(m[1]);

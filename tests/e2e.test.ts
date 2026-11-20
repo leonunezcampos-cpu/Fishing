@@ -254,9 +254,35 @@ describe('ferramentas MCP (Gmail simulado)', () => {
     const th = await callTool(ctx.app, token, 'get_thread', { thread_id: 't1' });
     expect(th.data.messages[0].body).toContain('Ação: revisar o orçamento.');
     const m = await callTool(ctx.app, token, 'get_message', { message_id: 'm1' });
-    expect(m.data.attachments[0]).toMatchObject({ filename: 'pauta.pdf', attachmentId: 'att-1' });
+    expect(m.data.attachments[0]).toMatchObject({ filename: 'pauta.pdf' });
+    expect(m.data.attachments[0].attachmentId).toMatch(/^att-1_/);
+    expect(m.data.attachments[0].attachmentId.length).toBeGreaterThan(400);
     const l = await callTool(ctx.app, token, 'list_labels');
     expect(l.data.map((x: any) => x.name)).toContain('Clientes');
+  });
+
+  it('download_attachment com o ID de uma leitura anterior (o Gmail troca o ID a cada leitura)', async () => {
+    const m = await callTool(ctx.app, token, 'get_message', { message_id: 'm1' });
+    const oldId = m.data.attachments[0].attachmentId;
+    const again = await callTool(ctx.app, token, 'get_message', { message_id: 'm1' });
+    expect(again.data.attachments[0].attachmentId).not.toBe(oldId);
+    const dl = await callTool(ctx.app, token, 'download_attachment', { message_id: 'm1', attachment_id: oldId });
+    expect(dl.isError).toBe(false);
+    expect(JSON.parse(dl.result.content[0].text)).toMatchObject({ filename: 'pauta.pdf', mimeType: 'application/pdf' });
+    expect(Buffer.from(dl.result.content[1].resource.blob, 'base64').toString()).toContain('%PDF-1.4');
+  });
+
+  it('send_message reaproveitando anexo de outra mensagem pelo ID de uma leitura anterior', async () => {
+    const m = await callTool(ctx.app, token, 'get_message', { message_id: 'm1' });
+    const r = await callTool(ctx.app, token, 'send_message', {
+      to: [SELF],
+      subject: 'Com anexo reaproveitado',
+      body_text: 'segue',
+      attachments: [{ from_message_id: 'm1', attachment_id: m.data.attachments[0].attachmentId }],
+    });
+    expect(r.isError).toBe(false);
+    const parsed = await simpleParser(ctx.gmail.sentRaw[0]);
+    expect(parsed.attachments.map(a => a.filename)).toEqual(['pauta.pdf']);
   });
 
   it('download_attachment inline e via link temporário', async () => {

@@ -22,6 +22,8 @@ export class GmailApiError extends Error {
 }
 
 const ID = '[A-Za-z0-9_-]{1,200}';
+/** IDs de anexo do Gmail são longos (~400+ caracteres), mas usam o mesmo alfabeto. */
+const ATT_ID = '[A-Za-z0-9_-]{1,4096}';
 
 type Method = 'GET' | 'POST' | 'PUT';
 interface Rule {
@@ -37,7 +39,7 @@ const API_RULES: Rule[] = [
   { method: 'GET', pattern: new RegExp(`^/threads/${ID}$`), name: 'threads.get' },
   { method: 'POST', pattern: new RegExp(`^/threads/${ID}/modify$`), name: 'threads.modify' },
   { method: 'GET', pattern: new RegExp(`^/messages/${ID}$`), name: 'messages.get' },
-  { method: 'GET', pattern: new RegExp(`^/messages/${ID}/attachments/${ID}$`), name: 'messages.attachments.get' },
+  { method: 'GET', pattern: new RegExp(`^/messages/${ID}/attachments/${ATT_ID}$`), name: 'messages.attachments.get' },
   { method: 'POST', pattern: new RegExp(`^/messages/${ID}/modify$`), name: 'messages.modify' },
   { method: 'POST', pattern: /^\/messages\/send$/, name: 'messages.send' },
   { method: 'GET', pattern: /^\/labels$/, name: 'labels.list' },

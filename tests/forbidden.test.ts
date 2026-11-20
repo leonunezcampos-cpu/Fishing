@@ -72,6 +72,7 @@ describe('bloqueio das ações proibidas no gateway do Gmail', () => {
       ['POST', '/threads/18c2f0a1b2/modify'],
       ['GET', '/messages/18c2f0a1b2'],
       ['GET', '/messages/18c2/attachments/ANGjdJ-x_y'],
+      ['GET', `/messages/18c2/attachments/ANGjdJ${'a-B_9'.repeat(90)}`],
       ['POST', '/messages/send'],
       ['POST', '/messages/send', true],
       ['GET', '/labels'],

@@ -12,7 +12,7 @@ import {
   type OutgoingMessage,
   type Signature,
 } from './mime.js';
-import { extractBody, header, listAttachments, summarizeMessage, type GmailMessage } from './parse.js';
+import { extractBody, header, listAttachments, summarizeMessage, type AttachmentInfo, type GmailMessage } from './parse.js';
 
 /** Acima disso, usa o endpoint de upload multipart em vez de JSON com raw em base64. */
 const RAW_JSON_MAX_BYTES = 4 * 1024 * 1024;
@@ -21,7 +21,7 @@ const MAX_MESSAGE_BYTES = 25 * 1024 * 1024;
 
 export type AttachmentInput =
   | { filename: string; mime_type?: string; content_base64: string }
-  | { from_message_id: string; attachment_id: string };
+  | { from_message_id: string; attachment_id: string; known?: AttachmentInfo };
 
 export interface ComposeInput {
   to?: string[];
@@ -127,22 +127,52 @@ export class GmailService {
     return (r.labels ?? []).map(l => ({ id: l.id, name: l.name, type: l.type })).sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  /** Metadados do anexo (nome, tipo, tamanho) + conteúdo. */
-  async getAttachment(messageId: string, attachmentId: string, maxBytes: number) {
+  /**
+   * Metadados de um anexo. ATENÇÃO: o Gmail gera um attachmentId DIFERENTE a cada leitura da mensagem,
+   * então um ID obtido antes (ex.: em get_message) normalmente não aparece numa nova leitura. Ele continua
+   * válido para baixar o conteúdo; aqui só identificamos nome/tipo/tamanho:
+   * 1) ID idêntico; 2) único anexo da mensagem; 3) tamanho igual (quando já baixado); 4) genérico.
+   */
+  private async resolveAttachmentInfo(messageId: string, attachmentId: string, downloadedSize?: number): Promise<AttachmentInfo | undefined> {
     const m = await this.gw.request<GmailMessage>({ method: 'GET', path: `/messages/${messageId}`, query: { format: 'full' } });
-    const info = listAttachments(m.payload).find(a => a.attachmentId === attachmentId);
-    if (!info) throw new Error('Anexo não encontrado nesta mensagem.');
-    if (info.size > maxBytes) throw new Error(`Anexo de ${info.size} bytes excede o limite de ${maxBytes} bytes.`);
+    const all = listAttachments(m.payload);
+    const exact = all.find(a => a.attachmentId === attachmentId);
+    if (exact) return { ...exact, attachmentId };
+    if (all.length === 1) return { ...all[0], attachmentId };
+    if (downloadedSize !== undefined) {
+      const bySize = all.filter(a => a.size === downloadedSize);
+      if (bySize.length === 1) return { ...bySize[0], attachmentId };
+    }
+    if (all.length === 0) throw new Error('Esta mensagem não tem anexos.');
+    return undefined;
+  }
+
+  private async downloadAttachmentData(messageId: string, attachmentId: string) {
     const a = await this.gw.request<{ data: string; size: number }>({ method: 'GET', path: `/messages/${messageId}/attachments/${attachmentId}` });
-    const content = Buffer.from(a.data, 'base64url');
+    return Buffer.from(a.data, 'base64url');
+  }
+
+  /** Metadados do anexo (nome, tipo, tamanho) + conteúdo. */
+  async getAttachment(messageId: string, attachmentId: string, maxBytes: number, known?: AttachmentInfo) {
+    let info = known ?? (await this.resolveAttachmentInfo(messageId, attachmentId));
+    if (info && info.size > maxBytes) throw new Error(`Anexo de ${info.size} bytes excede o limite de ${maxBytes} bytes.`);
+    const content = await this.downloadAttachmentData(messageId, attachmentId);
+    if (content.length > maxBytes) throw new Error(`Anexo de ${content.length} bytes excede o limite de ${maxBytes} bytes.`);
+    info ??= (await this.resolveAttachmentInfo(messageId, attachmentId, content.length)) ?? {
+      attachmentId,
+      filename: 'anexo',
+      mimeType: 'application/octet-stream',
+      size: content.length,
+    };
     return { ...info, size: content.length, content };
   }
 
-  async getAttachmentInfo(messageId: string, attachmentId: string) {
-    const m = await this.gw.request<GmailMessage>({ method: 'GET', path: `/messages/${messageId}`, query: { format: 'full' } });
-    const info = listAttachments(m.payload).find(a => a.attachmentId === attachmentId);
-    if (!info) throw new Error('Anexo não encontrado nesta mensagem.');
-    return info;
+  async getAttachmentInfo(messageId: string, attachmentId: string): Promise<AttachmentInfo> {
+    const info = await this.resolveAttachmentInfo(messageId, attachmentId);
+    if (info) return info;
+    // Vários anexos e ID de outra leitura: baixa para descobrir pelo tamanho.
+    const att = await this.getAttachment(messageId, attachmentId, Number.MAX_SAFE_INTEGER);
+    return { attachmentId, filename: att.filename, mimeType: att.mimeType, size: att.size };
   }
 
   // ───────────── Organização ─────────────
@@ -182,7 +212,7 @@ export class GmailService {
       if ('content_base64' in a) {
         out.push({ filename: a.filename, mimeType: a.mime_type, content: Buffer.from(a.content_base64, 'base64') });
       } else {
-        const att = await this.getAttachment(a.from_message_id, a.attachment_id, MAX_MESSAGE_BYTES);
+        const att = await this.getAttachment(a.from_message_id, a.attachment_id, MAX_MESSAGE_BYTES, a.known);
         out.push({ filename: att.filename, mimeType: att.mimeType, content: att.content });
       }
     }
@@ -281,7 +311,8 @@ export class GmailService {
     const signed = input.include_signature === false ? { text, html } : applySignature({ text, html }, this.cfg.signature);
 
     // Anexos originais + eventuais anexos novos.
-    const originals = listAttachments(p).map(a => ({ from_message_id: orig.id, attachment_id: a.attachmentId }));
+    // Usa os metadados desta mesma leitura (o attachmentId muda a cada leitura da mensagem).
+    const originals = listAttachments(p).map(a => ({ from_message_id: orig.id, attachment_id: a.attachmentId, known: a }));
     const refs = (header(p, 'References') ?? '').split(/\s+/).filter(Boolean);
     const mid = header(p, 'Message-ID');
     if (mid && !refs.includes(mid)) refs.push(mid);
