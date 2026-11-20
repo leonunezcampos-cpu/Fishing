@@ -1,7 +1,9 @@
 # Gmail pessoal — servidor MCP remoto para o claude.ai
 
 Conector personalizado (Streamable HTTP + OAuth 2.1/PKCE + registro dinâmico) que dá ao Claude acesso
-à conta **leonunezcampos@gmail.com**, e só a ela. Deploy na Railway; dados no Supabase.
+à conta **leonunezcampos@gmail.com**, e só a ela. Deploy na Railway; dados no Postgres do Supabase (projeto core-ccl-prod, schema `gmail_mcp`, papel `gmail_mcp_app` que só enxerga esse schema).
+
+**Produção:** `https://gmail-mcp-production-c64a2b60.up.railway.app/mcp` (projeto Railway `gmail-mcp-pessoal`, serviço `gmail-mcp`).
 
 - [Arquitetura](#arquitetura)
 - [Desenvolvimento local](#desenvolvimento-local)
@@ -38,7 +40,7 @@ exclusão permanente nem alterar filtros/encaminhamento/delegação (esses exige
 `gmail.settings.*`, que não são pedidos — e o servidor recusa a autorização se aparecerem). O único risco
 remanescente do `gmail.modify` — mover para a lixeira — é bloqueado no `src/gmail/gateway.ts` e coberto por testes.
 
-**Tabelas** (schema `gmail_mcp`, RLS ligado sem políticas): ver `supabase/migrations/001_gmail_mcp.sql`.
+**Tabelas** (schema `gmail_mcp`, RLS ligado, política só para `gmail_mcp_app`): ver `supabase/migrations/`.
 
 ## Desenvolvimento local
 
@@ -66,15 +68,14 @@ Para testar localmente com o Google e o Gmail reais: crie `.env` a partir de `.e
 > Faça tudo logado com a conta **pessoal** (leonunezcampos@gmail.com), não com a do escritório.
 > Nomes de menus mudam com frequência; se algo não bater, procure o equivalente.
 
-### 1. Railway — gerar o domínio primeiro (sem deploy ainda)
+### 1. Railway e Supabase — já feitos
 
-O domínio é necessário para as URIs de redirecionamento do Google.
+- Railway: projeto `gmail-mcp-pessoal`, serviço `gmail-mcp`, domínio `https://gmail-mcp-production-c64a2b60.up.railway.app`,
+  variáveis configuradas (chave de criptografia gerada aleatoriamente; `DATABASE_URL` com o papel restrito). Deploy via `railway up`.
+- Supabase (core-ccl-prod): migrações `001` e `002` aplicadas. O papel `gmail_mcp_app` lê/escreve só as 6 tabelas de `gmail_mcp`
+  e não tem acesso a nenhuma tabela de outro schema (verificado com `has_table_privilege`). Não precisa expor o schema na API REST.
 
-1. Em <https://railway.com> → **New Project** → **Deploy from GitHub repo** → escolha `leonunezcampos-cpu/Fishing`.
-   Se ele começar a fazer deploy sozinho, tudo bem: vai falhar por falta de variáveis, sem custo relevante.
-2. No serviço → **Settings** → **Source** → *Branch*: a branch deste trabalho (ou `main`, após o merge).
-3. **Settings** → **Networking** → **Generate Domain**. Anote: `https://NOME.up.railway.app`.
-   Daqui em diante, `SEU_DOMINIO` = esse endereço, sem barra final.
+`SEU_DOMINIO` abaixo = `https://gmail-mcp-production-c64a2b60.up.railway.app`.
 
 ### 2. Google Cloud — projeto, Gmail API, consentimento e credenciais
 
@@ -106,37 +107,15 @@ O domínio é necessário para as URIs de redirecionamento do Google.
      `leonunezcampos@gmail.com` em **Usuários de teste**) e reconectar a cada 7 dias — o servidor detecta o token
      expirado e o claude.ai pede nova autorização. Me avise se isso acontecer.
 
-### 3. Supabase — tabelas e chaves
+### 3. Railway — colar as credenciais do Google
 
-1. Use um projeto existente (o schema `gmail_mcp` é isolado) ou crie um novo no plano Free em <https://supabase.com/dashboard>.
-2. **SQL Editor** → **New query** → cole todo o conteúdo de `supabase/migrations/001_gmail_mcp.sql` → **Run**.
-3. **Project Settings → Data API** → **Exposed schemas** → acrescente `gmail_mcp` → **Save**.
-   (Sem isso a API REST responde "schema must be one of…".)
-4. **Project Settings → API Keys**: copie a **Project URL** e a chave **secreta** (`service_role` ou `sb_secret_…`).
-   Essa chave ignora RLS — fica só na Railway.
+Em <https://railway.com> → projeto **gmail-mcp-pessoal** → serviço **gmail-mcp** → **Variables** → **New Variable**, crie:
 
-### 4. Railway — variáveis de ambiente
+- `GOOGLE_CLIENT_ID` = ID do cliente (termina em `.apps.googleusercontent.com`)
+- `GOOGLE_CLIENT_SECRET` = chave secreta do cliente
+- (opcional) `EMAIL_SIGNATURE` = sua assinatura (use `\n` para quebrar linha) e `SENDER_NAME` = nome do remetente
 
-No serviço → **Variables** → **Raw Editor**, cole (substituindo os valores):
-
-```
-NODE_ENV=production
-PUBLIC_BASE_URL=https://SEU_DOMINIO
-ALLOWED_GOOGLE_EMAIL=leonunezcampos@gmail.com
-GOOGLE_CLIENT_ID=...apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=...
-TOKEN_ENCRYPTION_KEY=...           # gere com: npm run gen-key  (ou: openssl rand -base64 32)
-STORE=supabase
-SUPABASE_URL=https://SEU-PROJETO.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=...
-SEND_DAILY_LIMIT=50
-SEND_MAX_RECIPIENTS=20
-EMAIL_SIGNATURE=Léo Núñez Campos
-```
-
-Os demais têm padrão (ver `.env.example`). O `railway.json` já define build (`npm run build`), start (`npm start`)
-e healthcheck (`/healthz`). Depois de salvar, a Railway faz o deploy; confira em
-`SEU_DOMINIO/.well-known/oauth-protected-resource/mcp` que `resource` = `SEU_DOMINIO/mcp`.
+Clique em **Deploy** (ou "Apply changes") para reiniciar com as variáveis novas.
 
 ---
 
@@ -170,7 +149,7 @@ e healthcheck (`/healthz`). Depois de salvar, a Railway faz o deploy; confira em
 | 15 | "Mova esse e-mail para a lixeira" | — | Claude responde que não há ferramenta para isso |
 
    **Envios só para o seu próprio endereço.** Para testar *responder a todos*, use uma conversa em que só você esteja.
-5. **Auditoria:** no Supabase → Table Editor → `gmail_mcp.send_audit`: uma linha por envio, com data/hora, `gmail_message_id`
+5. **Auditoria:** no Supabase (core-ccl-prod) → SQL Editor → `select * from gmail_mcp.send_audit order by sent_at desc;`: uma linha por envio, com data/hora, `gmail_message_id`
    e `recipient_count` — sem endereços. Logs da Railway: só ferramenta, status e duração.
 6. **Limites (opcional):** ponha `SEND_MAX_RECIPIENTS=1` e peça um envio para dois endereços seus → erro claro. Volte o valor.
 
@@ -184,7 +163,7 @@ Do mais leve ao mais completo:
    railway link        # uma vez, para associar o CLI ao projeto
    railway run npm run revoke-all
    ```
-   (Alternativa sem CLI: no SQL Editor do Supabase, `update gmail_mcp.oauth_tokens set revoked_at = now() where revoked_at is null; delete from gmail_mcp.google_credentials;`)
+   (Alternativa sem CLI: no SQL Editor do Supabase (core-ccl-prod), `update gmail_mcp.oauth_tokens set revoked_at = now() where revoked_at is null; delete from gmail_mcp.google_credentials;`)
 3. **No Google:** <https://myaccount.google.com/permissions> → **Gmail MCP pessoal** → **Remover todo o acesso**.
    O servidor percebe na próxima chamada (`invalid_grant`), apaga a credencial e revoga os tokens do Claude.
 4. **Emergência:** pause o serviço na Railway e/ou troque `GOOGLE_CLIENT_SECRET` (Google Cloud → Clientes → redefinir chave secreta).

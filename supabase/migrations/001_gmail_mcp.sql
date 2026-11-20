@@ -1,5 +1,5 @@
 -- Servidor MCP do Gmail pessoal — esquema próprio, isolado do resto do projeto.
--- Rodar no SQL Editor do Supabase (ou via supabase db push).
+-- Aplicado no projeto core-ccl-prod. Depois rode 002 (papel restrito).
 
 create schema if not exists gmail_mcp;
 
@@ -76,7 +76,7 @@ create table if not exists gmail_mcp.send_audit (
 );
 create index if not exists send_audit_sent_at_idx on gmail_mcp.send_audit (sent_at);
 
--- RLS ligado e nenhuma política: só a service role (servidor) acessa.
+-- RLS ligado; a única política (em 002) é para o papel gmail_mcp_app.
 alter table gmail_mcp.oauth_clients      enable row level security;
 alter table gmail_mcp.oauth_pending      enable row level security;
 alter table gmail_mcp.oauth_codes        enable row level security;
@@ -84,8 +84,6 @@ alter table gmail_mcp.oauth_tokens       enable row level security;
 alter table gmail_mcp.google_credentials enable row level security;
 alter table gmail_mcp.send_audit         enable row level security;
 
--- O schema precisa ser acessível à service role pela API REST.
-grant usage on schema gmail_mcp to service_role;
-grant all on all tables in schema gmail_mcp to service_role;
-alter default privileges in schema gmail_mcp grant all on tables to service_role;
-revoke all on schema gmail_mcp from anon, authenticated;
+-- Acesso: SOMENTE o papel gmail_mcp_app (criado em 002), que não enxerga nenhum outro schema do banco.
+revoke all on schema gmail_mcp from public, anon, authenticated;
+revoke all on all tables in schema gmail_mcp from public, anon, authenticated;
