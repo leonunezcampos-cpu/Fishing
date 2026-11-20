@@ -14,6 +14,7 @@ import { GmailGateway, type FetchLike } from './gmail/gateway.js';
 import { SendGuard } from './gmail/limits.js';
 import { GmailService } from './gmail/service.js';
 import { buildMcpServer } from './tools/index.js';
+import { homePage, privacyPage } from './pages.js';
 
 export interface AppDeps {
   config: Config;
@@ -59,7 +60,10 @@ export function createApp({ config, store, google, gmailFetch }: AppDeps) {
     res.json({ ok: true });
   });
   app.get('/', (_req, res) => {
-    res.type('text').send('Servidor MCP do Gmail pessoal. Endpoint MCP: /mcp');
+    res.type('html').send(homePage(config.allowedEmail));
+  });
+  app.get(['/privacidade', '/privacy'], (_req, res) => {
+    res.type('html').send(privacyPage(config.allowedEmail));
   });
 
   // ── Servidor de autorização (para o Claude) ──
