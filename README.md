@@ -72,7 +72,7 @@ Para testar localmente com o Google e o Gmail reais: crie `.env` a partir de `.e
 
 - Railway: projeto `gmail-mcp-pessoal`, serviço `gmail-mcp`, domínio `https://gmail-mcp-production-c64a2b60.up.railway.app`,
   variáveis configuradas (chave de criptografia gerada aleatoriamente; `DATABASE_URL` com o papel restrito).
-  **Deploy automático** a cada push na branch `claude/mcp-gmail-server-5byoy4` (app da Railway instalado no GitHub). Alternativa manual: `railway up`.
+  **Deploy automático** a cada push na branch `main` (app da Railway instalado no GitHub; commits de quem não é membro do projeto na Railway esperam aprovação em Deployments). Alternativa manual: `railway up`.
 - Supabase (core-ccl-prod): migrações `001` e `002` aplicadas. O papel `gmail_mcp_app` lê/escreve só as 6 tabelas de `gmail_mcp`
   e não tem acesso a nenhuma tabela de outro schema (verificado com `has_table_privilege`). Não precisa expor o schema na API REST.
 
