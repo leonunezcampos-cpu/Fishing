@@ -1,0 +1,43 @@
+{
+  "name": "gmail-mcp-pessoal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Servidor MCP remoto (Streamable HTTP + OAuth 2.1) para o Gmail pessoal",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "dev:mock": "NODE_ENV=development STORE=memory GMAIL_MOCK=1 DEV_FAKE_GOOGLE=1 tsx src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "gen-key": "node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\"",
+    "revoke-all": "node --import tsx scripts/revoke-all.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.5",
+    "html-to-text": "^10.0.1",
+    "jose": "^6.2.18",
+    "nodemailer": "^10.6.1",
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/html-to-text": "^9.0.4",
+    "@types/mailparser": "^3.9.0",
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "@types/supertest": "^7.2.1",
+    "mailparser": "^3.15.0",
+    "supertest": "^7.3.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
+  }
+}
